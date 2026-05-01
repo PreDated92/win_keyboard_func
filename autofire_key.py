@@ -3,6 +3,12 @@ import time
 import random
 from ctypes import wintypes
 
+# Define LRESULT based on architecture (32-bit vs 64-bit)
+if ctypes.sizeof(ctypes.c_void_p) == 8:
+    LRESULT = ctypes.c_longlong
+else:
+    LRESULT = ctypes.c_long
+
 # --- DLL and Function Setup ---
 user32 = ctypes.WinDLL('user32', use_last_error=True)
 kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
@@ -12,6 +18,13 @@ WM_INPUT = 0x00FF
 RID_INPUT = 0x10000003
 RIDEV_INPUTSINK = 0x00000100
 HWND_MESSAGE = -3
+
+# (220 = VK_OEM_5) Usually \ or | (depends on keyboard layout)
+BACKSLASH_KEY = 220 # Virtual-Key code for \ key
+
+# QWERTY layout only
+E_KEY = 0x12 # Scan code for 'E' key
+SPACE_KEY = 0x39 # Scan code for Space key
 
 # WM_INPUT = 0x00FF
 # Windows sends WM_INPUT to your window when raw input data is available.
@@ -78,7 +91,7 @@ class WNDCLASSEXW(ctypes.Structure):
     ]
 
 WNDPROC = ctypes.WINFUNCTYPE(
-    wintypes.LPARAM,  # Return Type (LRESULT)
+    LRESULT,  # Return Type
     wintypes.HWND,    # hwnd
     wintypes.UINT,    # uMsg
     wintypes.WPARAM,  # wParam
@@ -101,6 +114,14 @@ user32.CreateWindowExW.argtypes = (
     wintypes.HWND, wintypes.HMENU, wintypes.HINSTANCE, wintypes.LPVOID
 )
 user32.CreateWindowExW.restype = wintypes.HWND
+
+user32.DefWindowProcW.restype = LRESULT
+user32.DefWindowProcW.argtypes = (
+    wintypes.HWND,
+    wintypes.UINT,
+    wintypes.WPARAM,
+    wintypes.LPARAM
+)
 
 # --- Global Logic ---
 def process_input(lParam):
@@ -143,8 +164,7 @@ def process_input(lParam):
         state = "DOWN" if is_down else "UP"
         print(f"Raw Key: 0x{kbd.VKey:02X} | State: {state}")
 
-        if (state == "UP" and kbd.VKey == 220):
-            # (220 = VK_OEM_5) Usually \ or | (depends on keyboard layout)
+        if (state == "UP" and kbd.VKey == BACKSLASH_KEY):
             # Trigger happens on key release, not press (avoids repeats)            
             # This acts like an on/off toggle switch.
             global repeat_state
@@ -179,7 +199,7 @@ def wnd_proc(hwnd, msg, wparam, lparam):
     return user32.DefWindowProcW(hwnd, msg, wparam, lparam)
 
 # Keep a reference to the WNDPROC so it isn't garbage collected
-WNDPROC_FUNC = ctypes.WINFUNCTYPE(ctypes.c_longlong, wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM)(wnd_proc)
+WNDPROC_FUNC = WNDPROC(wnd_proc)
 
 def Listen():
     hinst = kernel32.GetModuleHandleW(None)
@@ -303,20 +323,18 @@ def KeyPress():
     # rand1 up to 0.1s delay, total 0.8s
     rand1 = random.randint(1, 100)/1000
     time.sleep(0.7 + rand1)
-    PressKey(0x12) # press E
-    #PressKey(0x39) # press Space
+    PressKey(E_KEY)
     # rand2 up to 0.05s delay, total 0.1s
     rand2 = random.randint(1, 500)/10000
     time.sleep(.05 + rand2)
-    ReleaseKey(0x12) # release E
-    #ReleaseKey(0x39) # press Space
+    ReleaseKey(E_KEY)
 
 #------- Main
 Listen()
 
 
 # Intended behavior
-# You press \ (VK 220), repeat mode toggles ON
+# You press \, repeat mode toggles ON
 # Any key release triggers KeyPress()
 # KeyPress() injects E down and E up
 # That injected E up comes back through WM_INPUT
